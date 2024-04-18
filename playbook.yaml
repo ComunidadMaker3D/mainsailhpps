@@ -1,0 +1,80 @@
+###
+- name: Enable htpasswd, ssl and firewall to your klipper instance
+  vars:
+    ht_pass: "juanfra"
+    ht_user: "juanfra"
+  hosts: localhost
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install dependencies
+      ansible.builtin.apt:
+        pkg:
+          - apache2-utils
+          - firewalld
+          - openssl
+          - python3-passlib
+
+    - name: Create htpasswd file
+      community.general.htpasswd:
+        path: /etc/nginx/0-passwords.txt 
+        password: "{{ ht_pass }}"
+        name: "{{ ht_user }}"
+        owner: root
+        group: www-data
+        mode: 0640
+
+    - name: Backup of mainsail config
+      ansible.builtin.copy:
+        src: /etc/nginx/sites-available/mainsail
+        dest: /etc/nginx/sites-available/mainsail.bkp
+
+    - name: Generate the Openssl private key
+      community.crypto.openssl_privatekey:
+        path: /etc/nginx/0-ratos-ssl.key
+        size: 2048
+        type: "RSA"
+        mode: "0600"
+
+    - name: Generate the Openssl certificate for the web server
+      community.crypto.x509_certificate:
+        path: /etc/nginx/0-ratos-ssl.crt
+        privatekey_path: /etc/nginx/0-ratos-ssl.key
+        provider: selfsigned
+        selfsigned_not_after: "+3650d"
+        mode: "0644"
+    
+    - name: Overwrite mainsail site
+      ansible.builtin.template:
+        src: templates/mainsail.j2
+        dest: /etc/nginx/sites-available/mainsail
+
+    - name: Allow https on firewall
+      ansible.posix.firewalld:
+        service: https
+        permanent: true
+        state: enabled
+
+    - name: Disable http on firewall
+      ansible.posix.firewalld:
+        service: http
+        permanent: true
+        state: disabled
+
+    - name: Enable ssh on firewall
+      ansible.posix.firewalld:
+        service: ssh
+        permanent: true
+        state: enabled
+
+    - name: Restart firewall service
+      ansible.builtin.service:
+        name: firewalld
+        state: restarted
+
+    - name: Restart nginx service
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
